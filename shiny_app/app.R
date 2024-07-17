@@ -1,6 +1,8 @@
 library(shiny)
 library(readr)
 library(dplyr)
+library(tidyr)
+library(qgraph)
 library(kableExtra)
 library(writexl)
 library(tibble)
@@ -9,9 +11,12 @@ library(PORT)
 example_correlation_matrix <- read_csv("example_correlation_matrix.csv")
 
 # Define UI for application
-ui <- fluidPage(
-  tags$head(
-    tags$style(HTML("
+ui <- navbarPage(
+  title = "PORT",
+  tabPanel("Analyze a set of three correlations", 
+           fluidPage(
+             tags$head(
+               tags$style(HTML("
                   body {
                     background-image: url('white_wave.png');
                     background-repeat: repeat;
@@ -20,46 +25,126 @@ ui <- fluidPage(
                     color: #123095;
                   }
                 "))
+             ),
+             # titlePanel(title = span(img(src = "logo.png", height = 90), "Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+             titlePanel(title = span("Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+             tags$h3("A method for assessing inconsistencies among reported correlations"),
+             #tags$h4("Hussey, Norwood, Cummins, Arslan, & Elson (2024)"),
+             sidebarLayout(
+               sidebarPanel(
+                 numericInput("rAB", "Reported correlation between A and B:", value =  0.5, min = -1, max = 1, step = 0.05),
+                 numericInput("rBC", "Reported correlation between B and C:", value = -0.1, min = -1, max = 1, step = 0.05),
+                 numericInput("rAC", "Reported correlation between A and C:", value =  0.1, min = -1, max = 1, step = 0.05)
+               ),
+               mainPanel(
+                 tableOutput("results_table"),
+                 plotOutput("network_plot")  
+               )
+             )
+           )
   ),
-  #titlePanel(title = span(img(src = "logo.png", height = 90), "Positive-Definiteness Of (Pearson's) r Tables")),
-  titlePanel(title = span("Positive-Definiteness Of (Pearson's) r Tables")),
-  tags$h3("A method for checking whether correlation tables contain errors & determining which specific correlation may be erroneous"),
-  tags$h4("Hussey, Norwood, Cummins, Arslan, & Elson (2024)"),
-    
-  # Sidebar for inputs: File upload and Download
-  sidebarLayout(
-    sidebarPanel(
-      downloadButton("downloadExample", "Download Example CSV"), 
-      tags$hr(),
-      fileInput("file1", "Choose CSV or Excel File",
-                accept = c("text/csv",
-                           "text/comma-separated-values,text/plain",
-                           ".csv", ".xlsx")),
-      tags$hr(),
-      downloadButton("downloadData", "Download Results")
-    ),
-    
-    # Main panel for displaying outputs
-    mainPanel(
-      tabsetPanel(
-        tabPanel("Test Results", 
-                 tags$hr(),
-                 tableOutput("testResults")
-        ),
-        tabPanel("Correlation Imputation", 
-                 tags$hr(),
-                 textOutput("imputeDescription"),  # This will display the string
-                 tags$hr(),
-                 tableOutput("dataTable")
-        )
-      )
-    )
+  tabPanel("Upload and analyze a full correlation matrix",
+             fluidPage(
+               tags$head(
+                 tags$style(HTML("
+                  body {
+                    background-image: url('white_wave.png');
+                    background-repeat: repeat;
+                  }
+                  h2 {
+                    color: #123095;
+                  }
+                "))
+               ),
+               #titlePanel(title = span(img(src = "logo.png", height = 90), "Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+               titlePanel(title = span("Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+               tags$h3("A method for assessing inconsistencies among reported correlations"),
+               #tags$h4("Hussey, Norwood, Cummins, Arslan, & Elson (2024)"),
+               
+               # Sidebar for inputs: File upload and Download
+               sidebarLayout(
+                 sidebarPanel(
+                   downloadButton("downloadExample", "Download Example CSV"), 
+                   tags$hr(),
+                   fileInput("file1", "Choose CSV or Excel File",
+                             accept = c("text/csv",
+                                        "text/comma-separated-values,text/plain",
+                                        ".csv", ".xlsx")),
+                   tags$hr(),
+                   downloadButton("downloadData", "Download Results")
+                 ),
+                 
+                 # Main panel for displaying outputs
+                 mainPanel(
+                   tabsetPanel(
+                     tabPanel("Test Results", 
+                              tags$hr(),
+                              tableOutput("testResults")
+                     ),
+                     tabPanel("Correlation Imputation", 
+                              tags$hr(),
+                              textOutput("imputeDescription"),  # This will display the string
+                              tags$hr(),
+                              tableOutput("dataTable")
+                     )
+                   )
+                 )
+               )
+             )
+  ),
+  tabPanel("Explanation & Links", 
+           fluidPage(
+             #titlePanel(title = span(img(src = "logo.png", height = 90), "Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+             titlePanel(title = span("Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+             tags$h3("A method for assessing inconsistencies among reported correlations"),
+             #tags$h4("Hussey, Norwood, Cummins, Arslan, & Elson (2024)"),
+             tags$p(br(),
+                    "Explanation of the method, its assumptions, use cases, etc. will be added here in time.",
+                    br(),
+                    br(),
+                    "Preprint: [forthcoming] ", # "Preprint: ", a("on PsyArXiv", href = "URL", target = "_blank"))
+                    br(),
+                    br(),
+                    "Cite as: Hussey, I., Norwood, S. F., Cummins, J., Arslan, R. A., & Elson, M. (2024). Positive-definiteness Of (Pearson's) r Tables (PORT): A method to check for inconsistencies in reported correlation tables. https://github.com/ianhussey/PORT",
+                    br(),
+                    br(),
+                    "Source code: ", a("GitHub", href = "https://github.com/ianhussey/PORT", target = "_blank"))
+           )
   )
 )
 
 # Define server logic
 server <- function(input, output) {
   
+  # panel 1
+  output$results_table <- renderTable({
+    correlation_consistency_trio(rAB = input$rAB,
+                                 rBC = input$rBC,
+                                 rAC = input$rAC,
+                                 digits = 3)
+  })
+  
+  output$network_plot <- renderPlot({
+    # create a correlation matrix
+    corr_matrix <- matrix(c(1, input$rAB, input$rAC, 
+                            input$rAB, 1, input$rBC, 
+                            input$rAC, input$rBC, 1), 
+                          nrow = 3)
+    rownames(corr_matrix) <- colnames(corr_matrix) <- c("A", "B", "C")
+    
+    # plot using qgraph
+    positions <- matrix(c(0, 1, -1, 0, 1, 0), 
+                        ncol = 2, 
+                        byrow = TRUE) 
+    
+    qgraph(corr_matrix, 
+           layout = positions, 
+           vsize = 5, 
+           esize = 15)
+  })
+  
+  
+  # panel 2
   # Reactive value for storing data
   dataInput <- reactive({
     inFile <- input$file1
