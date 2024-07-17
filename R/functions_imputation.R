@@ -15,8 +15,8 @@
 #'boundary(x, 4, 3)
 #'}
 #'@export
-boundary <- function(corMat, var1, var2, method = "default") #find correlation boundary by NUMPACHAROEN's logic on page 407.
-{
+boundary <- function(corMat, var1, var2, method = "default"){ #find correlation boundary by NUMPACHAROEN's logic on page 407.
+
   if(nrow(corMat) != ncol(corMat))
   {
     stop("Matrix must be square!")
@@ -81,6 +81,7 @@ boundary <- function(corMat, var1, var2, method = "default") #find correlation b
 #' @param corMat A square correlation matrix
 #' @param i, j Column and row indices to swap
 #' @return The correlation matrix with swapped columns and rows
+#' @export
 corSwap <- function(corMat, i, j) {
   if (i != j) {
     # Swap columns
@@ -91,6 +92,9 @@ corSwap <- function(corMat, i, j) {
   return(corMat)
 }
 
+#'angleToCor
+#'
+#'@export
 angleToCor <- function(angMat) {
   if (!isSquareMatrix(angMat)) stop("Matrix must be square!")
   
@@ -101,6 +105,9 @@ angleToCor <- function(angMat) {
   return(b %*% t(b))
 }
 
+#'corSwap
+#'
+#'@export
 corSwap <- function(corMat, i, j) {
   if (i != j) {
     corMat[, c(i, j)] <- corMat[, c(j, i)]
@@ -109,6 +116,9 @@ corSwap <- function(corMat, i, j) {
   return(corMat)
 }
 
+#'Impute missing correlation from a matrix
+#'
+#'@export
 corImpute <- function(corMat, method = "average", interval_prob = NA, interval = NA) {
   if (!isSquareMatrix(corMat)) stop("Matrix must be square!")
   if (countMiss(corMat) > 1) stop("Only 1 missing correlation currently supported!")
@@ -130,6 +140,9 @@ corImpute <- function(corMat, method = "average", interval_prob = NA, interval =
   return(corMat)
 }
 
+#'customBound
+#'
+#'@export
 customBound <- function(bounds, interval_prob, interval) {
   if (any(is.na(interval_prob), is.na(interval), length(interval_prob)*2 != length(interval), sum(interval_prob) != 1)) {
     stop("Invalid custom interval specifications!")
@@ -139,16 +152,26 @@ customBound <- function(bounds, interval_prob, interval) {
   runif(1, min = bound_range[1], max = bound_range[2])
 }
 
+#'Check if matrix is square
+#'
+#'@export
 isSquareMatrix <- function(mat) {
   nrow(mat) == ncol(mat) && nrow(mat) > 1
 }
 
+#'Count missing elements in a matrix
+#'
+#'@export
 countMiss <- function(corMat) {
   sum(lower.tri(corMat, diag = TRUE) & is.na(corMat))
 }
 
-bsolve <- function(angMat, i, j) #implement NUMPACHAROEN algorithm
-{
+#'bsolve
+#'
+#'implemention of NUMPACHAROEN (2013) algorithm
+#'
+#'@export
+bsolve <- function(angMat, i, j){ 
   if(nrow(angMat) != ncol(angMat))
   {
     stop("Matrix must be square!")
@@ -180,8 +203,12 @@ bsolve <- function(angMat, i, j) #implement NUMPACHAROEN algorithm
     return(0)
 }
 
-cholesky <- function(mat) #custom Cholesky-Crout algorithm to handle missing data
-{
+#'cholesky
+#'
+#'Custom Cholesky-Crout algorithm to handle missing data
+#'
+#'@export
+cholesky <- function(mat){ 
   x <- matrix(0, ncol = NCOL(mat), nrow = NROW(mat))
   for(j in 1:ncol(mat))
   {
@@ -217,8 +244,12 @@ cholesky <- function(mat) #custom Cholesky-Crout algorithm to handle missing dat
   return(x)
 }
 
-thetaSolve <- function(bMat, i, j, partAng=NA) #solves for theta using logic on NUMPACHAROEN (2013) page 405, partial angle matrix can be provided to speed up computation (so code can access what it already has calculated previously instead of having to compute everything from the beginning column again)
-{
+#'thetaSolve
+#'
+#'Solves for theta using logic on NUMPACHAROEN (2013) page 405. Partial angle matrix can be provided to speed up computation (so code can access what it already has calculated previously instead of having to compute everything from the beginning column again).
+#'
+#'@export
+thetaSolve <- function(bMat, i, j, partAng=NA){ 
   if(!is.matrix(partAng) || !is.data.frame(partAng))
     partAng <- matrix(NA, ncol = NCOL(bMat), nrow = NROW(bMat))
   if(nrow(bMat) != ncol(bMat))
@@ -287,9 +318,10 @@ matSolve <- function(corMat) #automatically finds the boundaries of one missing 
   }
 }
 
+#'Convert an upper or lower triangle to a full matrix
+#'
+#'@export
 triangle_to_cor_matrix <- function(triangle){
-  
-  library(tibble)
   
   # if input is a df or tibble, convert to matrix
   if(is.data.frame(triangle) | is_tibble(triangle)){
@@ -335,8 +367,7 @@ triangle_to_cor_matrix <- function(triangle){
 #'round(angleToCor(y), 2)
 #'}
 #' @export
-corToAng <- function(corMat) #function to loop over a correlation matrix calling thetaSolve on each element to get the theta values for the correlative angle matrix
-{
+corToAng <- function(corMat){ #function to loop over a correlation matrix calling thetaSolve on each element to get the theta values for the correlative angle matrix
   if(nrow(corMat) != ncol(corMat))
   {
     stop("Matrix must be square!")
@@ -357,45 +388,23 @@ corToAng <- function(corMat) #function to loop over a correlation matrix calling
   return(angMat)
 }
 
-triangle_to_cor_matrix <- function(triangle){
-  
-  # if input is a df or tibble, convert to matrix
-  if(is.data.frame(triangle) | is_tibble(triangle)){
-    triangle <- as.matrix(triangle)
-  } 
-  if(!is.matrix(triangle)){
-    stop("Input must be a matrix, data frame, or tibble")
-  }
-  
-  # assess if the triangle is an upper triangle. I.e., are all the lower tri values NA and all the upper tri values non-NA? If so, transpose the matrix to make it a lower triangle. 
-  if(all(is.na(triangle[lower.tri(triangle)])) &
-     all(!is.na(triangle[upper.tri(triangle)]))){
-    triangle <- t(triangle)
-  }
-  
-  # create an empty matrix of the same dimension as 'triangle' to hold the mirrored values
-  mirror_matrix <- matrix(0, nrow = nrow(triangle), ncol = ncol(triangle))
-  
-  # assign the lower triangle of 'mirror_matrix' with the lower triangle of 'triangle'
-  mirror_matrix[lower.tri(mirror_matrix)] <- triangle[lower.tri(triangle)]
-  
-  # add the transposed 'mirror_matrix' to itself to complete the mirroring process
-  full_matrix <- mirror_matrix + t(mirror_matrix) - diag(nrow(triangle))
-  
-  # fill diagonal with 1s
-  diag(full_matrix) <- 1
-  
-  return(full_matrix)
-}
-
+#' Check if correlation matrix is positive definite
+#'
+#'@export
 positive_definite <- function(correlation_matrix){
   all(eigen(correlation_matrix)$values > 0)
 }
 
+#' Check if all elements of a correlation matrix are within the bounds [-1, 1]
+#'
+#'@export
 within_bounds <- function(correlation_matrix){
   all(correlation_matrix <= +1) & all(correlation_matrix >= -1)
 }
 
+#' Apply multiple checks to a correlation matrix
+#'
+#'@export
 check_correlation_matrix <- function(data_matrix) {
   require(stats)  # Ensure the stats package is loaded for rank function
   

@@ -5,6 +5,8 @@
 \title{Swaps columns and rows i and j in a correlation matrix}
 \usage{
 corSwap(corMat, i, j)
+
+corSwap(corMat, i, j)
 }
 \arguments{
 \item{corMat}{A square correlation matrix}
@@ -16,4 +18,6 @@ The correlation matrix with swapped columns and rows
 }
 \description{
 Swaps columns and rows i and j in a correlation matrix
+
+corSwap
 }
