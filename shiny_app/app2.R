@@ -38,13 +38,12 @@ ui <- fluidPage(
 
 # server logic
 server <- function(input, output) {
+  
   output$results_table <- renderTable({
-    correlation_consistency_trio(
-      rAB = input$rAB, 
-      rBC = input$rBC, 
-      rAC = input$rAC,
-      digits = 3
-    )
+    correlation_consistency_trio(rAB = input$rAB,
+                                 rBC = input$rBC,
+                                 rAC = input$rAC,
+                                 digits = 3)
   })
   
   output$network_plot <- renderPlot({
