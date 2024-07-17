@@ -12,9 +12,9 @@
 #' @export
 correlation_consistency_trio <- function(rAB, rBC, rAC, digits = 2) {
   # calculate bounds for each pair
-  bounds_AB <- correlation_consistency_single(rBC, rAC, rAB, digits)
-  bounds_BC <- correlation_consistency_single(rAB, rAC, rBC, digits)
-  bounds_AC <- correlation_consistency_single(rAB, rBC, rAC, digits)
+  bounds_AB <- correlation_consistency_single(rBC, rAC, rAB)
+  bounds_BC <- correlation_consistency_single(rAB, rAC, rBC)
+  bounds_AC <- correlation_consistency_single(rAB, rBC, rAC)
   
   # rename columns for clarity
   bounds_AB <- bounds_AB |>
