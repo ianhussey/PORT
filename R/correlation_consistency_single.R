@@ -33,18 +33,18 @@ correlation_consistency_single <- function(r_XY, r_XZ, r_YZ = NA){
                         ifelse(upper_bound > +1, +1, upper_bound))
   
   if(!is.na(r_YZ)){
-    res <- data.frame(r_XY = r_XY,
-                      r_XZ = r_XZ,
-                      r_YZ = r_YZ,
-                      r_YZ_lower_bound = round_half_up(lower_bound, digits = 3),
-                      r_YZ_upper_bound = round_half_up(upper_bound, digits = 3)) |>
-      mutate(consistent = ifelse(r_YZ > r_YZ_lower_bound & r_YZ < r_YZ_upper_bound, TRUE, FALSE))
+    res <- data.frame(rXY = r_XY,
+                      rXZ = r_XZ,
+                      rYZ = r_YZ,
+                      rYZ_lower = round_half_up(lower_bound, digits = 3),
+                      rYZ_upper = round_half_up(upper_bound, digits = 3)) |>
+      mutate(consistent = ifelse(rYZ > rYZ_lower & rYZ < rYZ_upper, TRUE, FALSE))
   } else {
-    res <- data.frame(r_XY = r_XY,
-                      r_XZ = r_XZ,
-                      r_YZ = r_YZ,
-                      r_YZ_lower_bound = round_half_up(lower_bound, digits = 3),
-                      r_YZ_upper_bound = round_half_up(upper_bound, digits = 3)) |>
+    res <- data.frame(rXY = r_XY,
+                      rXZ = r_XZ,
+                      rYZ = r_YZ,
+                      rYZ_lower = round_half_up(lower_bound, digits = 3),
+                      rYZ_upper = round_half_up(upper_bound, digits = 3)) |>
       mutate(consistent = NA)
   }
   
