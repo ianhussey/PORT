@@ -1,0 +1,20 @@
+Package: PORT
+Title: Positive-Definiteness Of (Pearson's) r Tables
+Version: 0.1
+Authors@R: 
+    person("Ian", "Hussey", , "ian.hussey@unibe.ch", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0001-8906-7559"))
+Description: Check correlation tables for inconsistencies and attempt to isolate which specific correlation estimates may be causing the inconsistency. 
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.2.3
+Imports: 
+    tibble,    dplyr,    tidyr,    purrr,    ggplot2,    scales
+Suggests:
+    knitr,
+    kableExtra,
+    devtools,
+    roxygen2
+VignetteBuilder: knitr
+BuildVignettes: true
