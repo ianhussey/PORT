@@ -1,0 +1,155 @@
+---
+title: "Assess whether correlation tables are internally consistent, and reconstruct regression analyses from correlation matrices"
+author: "Ian Hussey"
+output:
+  html_document:
+    code_folding: hide
+    highlight: haddock
+    theme: flatly
+    toc: yes
+    toc_float: yes
+---
+
+IN DEVELOPMENT - NOT RECOMMENDED FOR USE
+ 
+```{r include=FALSE}
+
+# formatting options
+# set default chunk options
+knitr::opts_chunk$set(message = FALSE, 
+                      warning = FALSE)
+
+# disable scientific notation
+options(scipen = 999) 
+
+```
+
+```{r}
+
+# dependencies
+library(lavaan)
+library(janitor)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(Matrix)
+
+```
+
+# Correlation consistency
+
+Given three correlations calculated within a given sample using use = "all", assess whether the third correlation is possible given the first two.
+
+```{r}
+
+library(dplyr)
+
+round_down <- function(x, digits = 2) {
+  factor <- 10 ^ digits
+  floor(x * factor) / factor
+}
+
+round_up <- function(x, digits = 2) {
+  factor <- 10 ^ digits
+  ceiling(x * factor) / factor
+}
+
+correlation_consistency <- function(rXY, rXZ, rYZ = NULL, digits = 2){
+  require(dplyr)
+  # Since X, Y, and Z are z-scored vectors, the correlation coefficient between any pair is the cosine similarity.
+  lower_bound <- cos(acos(rXY) + acos(rXZ))
+  upper_bound <- cos(abs(acos(rXY) - acos(rXZ)))
+  
+  # correlations are bounded [-1, +1], so correct impossible results
+  lower_bound <- ifelse(lower_bound < -1, -1, 
+                        ifelse(lower_bound > +1, +1, lower_bound))
+  
+  upper_bound <- ifelse(upper_bound < -1, -1, 
+                        ifelse(upper_bound > +1, +1, upper_bound))
+  
+  res <- data.frame(rXY = rXY,
+                    rXZ = rXZ,
+                    rYZ = rYZ,
+                    rYZ_lower = round_down(lower_bound, digits = digits),
+                    rYZ_upper = round_up(upper_bound, digits = digits)) |>
+    mutate(consistent = ifelse(rYZ > rYZ_lower & rYZ < rYZ_upper, TRUE, FALSE))
+  
+  return(res)
+}
+
+correlation_consistency(rXY = .79, rXZ = .66, rYZ = -.10)
+correlation_consistency(rXY = .90, rXZ = .90, rYZ = .10)
+
+```
+
+# do it for all
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(stringr)
+
+correlation_bounds_matrix <- function(rAB, rBC, rAC, digits = 2) {
+  # calculate bounds for each pair
+  bounds_AB <- correlation_consistency(rBC, rAC, rAB, digits)
+  bounds_BC <- correlation_consistency(rAB, rAC, rBC, digits)
+  bounds_AC <- correlation_consistency(rAB, rBC, rAC, digits)
+  
+  # rename columns for clarity
+  bounds_AB <- bounds_AB |>
+    rename(rAB_lower = rYZ_lower,
+           rAB_upper = rYZ_upper,
+           rAB_consistency = consistent)
+  
+  bounds_BC <- bounds_BC |>
+    rename(rBC_lower = rYZ_lower,
+           rBC_upper = rYZ_upper,
+           rBC_consistency = consistent)
+  
+  bounds_AC <- bounds_AC |>
+    rename(rAC_lower = rYZ_lower,
+           rAC_upper = rYZ_upper,
+           rAC_consistency = consistent)
+  
+  # summarize results
+  results <- data.frame(
+    reported__r_AB = rAB,
+    lower__r_AB = bounds_AB$rAB_lower,
+    upper__r_AB = bounds_AB$rAB_upper,
+    consistent__r_AB = bounds_AB$rAB_consistency,
+    
+    reported__r_BC = rBC,
+    lower__r_BC = bounds_BC$rBC_lower,
+    upper__r_BC = bounds_BC$rBC_upper,
+    consistent__r_BC = bounds_BC$rBC_consistency,
+    
+    reported__r_AC = rAC,
+    lower__r_AC = bounds_AC$rAC_lower,
+    upper__r_AC = bounds_AC$rAC_upper,
+    consistent__r_AC = bounds_AC$rAC_consistency
+  ) |>
+  # wrangle
+  pivot_longer(cols = everything(),
+               names_to = c("metric", "variables"),
+               names_sep = "__",
+               values_to = "value") |>
+  pivot_wider(names_from = "metric",
+              values_from = "value") |>
+  mutate(consistent = as.logical(consistent),
+         variables = str_remove(variables, "r_")) |>
+  rename(lower_possible = lower,
+         upper_possible = upper)
+  
+  return(results)
+}
+
+
+# calculate the bounds
+correlation_bounds_matrix(rAB = 0.5, 
+                          rBC = -0.8, 
+                          rAC = 0.11, 
+                          digits = 3) 
+
+```
+
