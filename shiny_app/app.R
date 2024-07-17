@@ -1,11 +1,12 @@
 library(shiny)
 library(readr)
+library(writexl)
 library(dplyr)
 library(tidyr)
+library(stringr)
+library(tibble)
 library(qgraph)
 library(kableExtra)
-library(writexl)
-library(tibble)
 library(PORT)
 
 example_correlation_matrix <- read_csv("example_correlation_matrix.csv")
@@ -26,8 +27,8 @@ ui <- navbarPage(
                   }
                 "))
              ),
-             # titlePanel(title = span(img(src = "logo.png", height = 90), "Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
-             titlePanel(title = span("Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+             titlePanel(title = span(img(src = "logo.png", height = 90), "Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+             # titlePanel(title = span("Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
              tags$h3("A method for assessing inconsistencies among reported correlations"),
              #tags$h4("Hussey, Norwood, Cummins, Arslan, & Elson (2024)"),
              sidebarLayout(
@@ -56,8 +57,8 @@ ui <- navbarPage(
                   }
                 "))
                ),
-               #titlePanel(title = span(img(src = "logo.png", height = 90), "Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
-               titlePanel(title = span("Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+               titlePanel(title = span(img(src = "logo.png", height = 90), "Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+               # titlePanel(title = span("Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
                tags$h3("A method for assessing inconsistencies among reported correlations"),
                #tags$h4("Hussey, Norwood, Cummins, Arslan, & Elson (2024)"),
                
@@ -94,8 +95,8 @@ ui <- navbarPage(
   ),
   tabPanel("Explanation & Links", 
            fluidPage(
-             #titlePanel(title = span(img(src = "logo.png", height = 90), "Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
-             titlePanel(title = span("Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+             titlePanel(title = span(img(src = "logo.png", height = 90), "Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
+             # titlePanel(title = span("Positive-definiteness Of (Pearson's) ", em("r"), " Tables")),
              tags$h3("A method for assessing inconsistencies among reported correlations"),
              #tags$h4("Hussey, Norwood, Cummins, Arslan, & Elson (2024)"),
              tags$p(br(),
