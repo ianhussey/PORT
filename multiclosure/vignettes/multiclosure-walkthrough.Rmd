@@ -1,0 +1,116 @@
+---
+title: "multiclosure walk-through"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{multiclosure walk-through}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 6, fig.height = 4
+)
+```
+
+# Forensic reconstruction of a (synthetic) psychology Table 1
+
+This vignette walks through `multiclosure` on a synthetic but realistic
+psychology Table 1. The scenario: a hypothetical 6-item Likert (1–7) scale
+"ResilienceX" administered to N = 217 participants. The Table reports per-item
+means, SDs, a correlation matrix, and Cronbach's α, all rounded to 2dp.
+
+```{r}
+library(multiclosure)
+dat <- readRDS(system.file("extdata", "synthetic_table1.rds",
+                           package = "multiclosure"))
+str(dat, max.level = 1L)
+```
+
+## Stage 1 — cheap impossibility certificates
+
+```{r}
+tols <- make_tols()
+s1 <- run_stage1(N = dat$N, K = dat$K, M = dat$M, s = dat$s, R = dat$R,
+                 alpha = dat$alpha, tols = tols)
+s1$passed
+s1$details$grim_grimmer
+s1$details$bhatia_davis
+s1$details$alpha
+head(s1$details$frechet)
+```
+
+## Stage 2 — per-item CLOSURE enumeration
+
+```{r}
+marg <- enumerate_marginals(dat$M, dat$s, dat$N, dat$K)
+sapply(marg, nrow)   # per-item candidate counts
+```
+
+## Stage 3 — beta-binomial plausibility filter
+
+```{r}
+fits <- lapply(seq_along(dat$M),
+               function(j) bb_mom_fit(dat$M[j], dat$s[j], dat$K, dat$N))
+sapply(fits, function(f) c(alpha = f$alpha, beta = f$beta,
+                            skew_bb = f$skew_bb))
+
+filtered <- lapply(seq_along(dat$M),
+                   function(j) bb_skew_filter(marg[[j]], fits[[j]], dat$N))
+sapply(filtered, function(f) f$retention)
+```
+
+## Stages 4 + 5 end-to-end
+
+```{r}
+out <- multi_closure(
+  N = dat$N, K = dat$K, M = dat$M, s = dat$s, R = dat$R, alpha = dat$alpha,
+  max_candidates = 50L,
+  stage4 = list(strategy = "bb_closest", max_combos = 200L,
+                samples_per_combo = 1L),
+  verbose = FALSE, seed = 42L
+)
+out
+```
+
+```{r, eval = requireNamespace("ggplot2", quietly = TRUE)}
+plot(out, what = "retention")
+plot(out, what = "skew_bb")
+```
+
+## Adversarial variants
+
+**Fréchet-violating correlation.** Bump one off-diagonal to 0.95:
+
+```{r}
+R_bad <- dat$R
+R_bad[1, 2] <- R_bad[2, 1] <- 0.95
+out_fr <- multi_closure(N = dat$N, K = dat$K, M = dat$M, s = dat$s,
+                        R = R_bad, alpha = dat$alpha,
+                        verbose = FALSE)
+out_fr$feasibility
+```
+
+**Cronbach α inconsistency.** Keep R and s consistent with α ≈ 0.82 but report
+0.30:
+
+```{r}
+out_a <- multi_closure(N = dat$N, K = dat$K, M = dat$M, s = dat$s,
+                       R = dat$R, alpha = 0.30, verbose = FALSE)
+out_a$feasibility
+```
+
+## Interpretation
+
+* `feasibility$passed = TRUE` means at least one integer dataset on `{1..K}`
+  reproduces the reported summary to within ±0.005 per scalar.
+* `feasibility$passed = FALSE` with a Stage-1 reason means the summary is
+  internally inconsistent — no dataset can produce it.
+* `feasibility$passed = NA` means Stage 1 passed but Stage 4 NORTA could not
+  find a verified candidate. A non-Gaussian-copula reconstruction may still
+  exist; Stage 6 (MIP fallback) is needed and is planned for v2.
+* Retention < 0.10 on any item means the reported (mean, SD) for that item is
+  jointly atypical for a bounded-support beta-binomial generating process —
+  consider floor/ceiling effects, contamination, or mixture composition.
