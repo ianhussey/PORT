@@ -132,14 +132,6 @@ angleToCor <- function(angMat) {
   return(b %*% t(b))
 }
 
-corSwap <- function(corMat, i, j) {
-  if (i != j) {
-    corMat[, c(i, j)] <- corMat[, c(j, i)]
-    corMat[c(i, j), ] <- corMat[c(j, i), ]
-  }
-  return(corMat)
-}
-
 corImpute <- function(corMat, method = "average", interval_prob = NA, interval = NA) {
   if (!isSquareMatrix(corMat)) stop("Matrix must be square!")
   if (countMiss(corMat) > 1) stop("Only 1 missing correlation currently supported!")
@@ -384,18 +376,33 @@ corToAng <- function(corMat) #function to loop over a correlation matrix calling
 	return(angMat)
 }
 
-# data_test <- read_csv("test_data_correct.csv", show_col_types = FALSE) |>
-#   triangle_to_cor_matrix()
-# 
-# data_test_missing <- data_test 
-# 
-# data_test_missing[1,3] <- NA
-# data_test_missing[3,1] <- NA
-# 
-# data_test[1,3]
-# round(corImpute(data_test_missing, method = "average"), 2)[1,3]
-# round(corImpute(data_test_missing, method = "lbound"), 2)[1,3]
-# round(corImpute(data_test_missing, method = "rbound"), 2)[1,3]
+data_test <- read_csv("test_data_correct.csv", show_col_types = FALSE) |>
+  triangle_to_cor_matrix()
+
+data_test_missing <- data_test
+
+data_test_missing[1,3] <- NA
+data_test_missing[3,1] <- NA
+
+data_test[1,3]
+round(corImpute(data_test_missing, method = "average"), 2)[1,3]
+round(corImpute(data_test_missing, method = "lbound"), 2)[1,3]
+round(corImpute(data_test_missing, method = "rbound"), 2)[1,3]
+
+```
+
+### Impute individual correlations
+
+```{r}
+
+dat <- matrix(data = c())
+dat[1,3] <- NA
+dat[3,1] <- NA
+
+dat[1,3]
+round(corImpute(data_test_missing, method = "average"), 2)[1,3]
+round(corImpute(data_test_missing, method = "lbound"), 2)[1,3]
+round(corImpute(data_test_missing, method = "rbound"), 2)[1,3]
 
 ```
 
@@ -608,6 +615,760 @@ write_xlsx(list(original = df_original_matrix,
 
 ```
 
+# Gemini alternative
+
+Gemini suggests that Frank's original code is a literal implementation of the math from the cited papers, but is computationally inefficient and may even have some bugs. It suggests this alternative:
+
+```{r}
+
+#' Efficient Correlation Boundary
+#'
+#' Computes the min/max values for a missing correlation using the 
+#' closed-form algebraic method (Schur complement/Projection).
+#'
+#' @param corMat A correlation matrix.
+#' @param var1 Index of the first variable whose correlation bounds should be estimated.
+#' @param var2 Index of the second variable whose correlation bounds should be estimated.
+#' @return A vector c(min, max).
+#' @export
+boundary_algebraic <- function(corMat, var1, var2) {
+  
+  # Helper to return consistent dataframe structure for edge cases
+  return_df <- function(mean, lower, upper) {
+    data.frame(imputed_r_mean = mean, 
+               imputed_r_lower_bound = lower, 
+               imputed_r_upper_bound = upper)
+  }
+
+  # 1. Validation
+  if(nrow(corMat) != ncol(corMat)) stop("Matrix must be square!")
+  
+  # Edge Case: Same variable
+  if(var1 == var2) return(return_df(1, 1, 1))
+  
+  # 2. Identify the "Known" variables (K)
+  idx_k <- setdiff(seq_len(nrow(corMat)), c(var1, var2))
+  
+  # Edge Case: No conditioning variables (2x2 matrix) -> Bounds are -1 to 1
+  if(length(idx_k) == 0) return(return_df(0, -1, 1))
+  
+  # 3. Extract submatrices
+  r_1k <- corMat[var1, idx_k]
+  r_2k <- corMat[var2, idx_k]
+  R_kk <- corMat[idx_k, idx_k]
+  
+  # 4. Solve using Linear Algebra
+  R_kk_inv <- tryCatch(solve(R_kk), error = function(e) NULL)
+  
+  # Edge Case: Singular matrix
+  if(is.null(R_kk_inv)) {
+    warning("Matrix K is singular; bounds might be loose or inaccurate.")
+    return(return_df(0, -1, 1))
+  }
+  
+  # 5. Calculation
+  center <- as.numeric(t(r_1k) %*% R_kk_inv %*% r_2k)
+  
+  var1_resid <- max(0, 1 - as.numeric(t(r_1k) %*% R_kk_inv %*% r_1k))
+  var2_resid <- max(0, 1 - as.numeric(t(r_2k) %*% R_kk_inv %*% r_2k))
+  
+  radius <- sqrt(var1_resid * var2_resid)
+  
+  # Success Return
+  return(return_df(center, center - radius, center + radius))
+}
+
+```
+
+usage
+
+```{r}
+
+data(mtcars)
+
+# Create a correlation matrix from the first 4 variables:
+# 1:mpg, 2:cyl, 3:disp, 4:hp
+M <- cor(mtcars[, 1:4])
+
+
+v1_idx <- 1 # mpg
+v2_idx <- 4 # hp
+
+# Note: We pass the full matrix M. The function ignores M[1,4] and M[4,1] 
+# and uses the other constraints to find what those values *could* be.
+bounds <- boundary_algebraic(M, v1_idx, v2_idx)
+
+
+# original
+round(M[v1_idx, v2_idx], 3)
+# bounds
+bounds
+
+```
+
+## simulation 
+
+```{r}
+multiverse_plot <- function(data, 
+                            outcome = "outcome", 
+                            outcome_name = "Outcome",
+                            interval_lower = NULL,
+                            interval_upper = NULL,
+                            rank_by = "rank",
+                            rank_by_outcome = FALSE,
+                            relative_height_of_upper_plot = 0.70, 
+                            outcome_cutoff = NULL){
+  
+  # dependencies
+  require(dplyr)
+  require(tidyr)
+  require(ggplot2)
+  require(cowplot)
+  require(ggtext)
+
+  # TODO consider checking inputs with rlang::ensym(variable)
+
+  # rename outcome variable
+  data <- data |>
+    rename(outcome = {{outcome}},
+           rank = {{rank_by}})
+  
+  # if intervals aren't specified, set them to the same value as outcome (so they are invisible in the plot)
+  if(!is.null(interval_lower)){
+    data <- data |>
+      rename(interval_lower = {{interval_lower}})
+  } else {
+    data$interval_lower <- data$outcome
+  }
+  
+  if(!is.null(interval_upper)){
+    data <- data |>
+      rename(interval_upper = {{interval_upper}})
+  } else {
+    data$interval_upper <- data$outcome
+  }
+  
+  # if rank_by_outcome, rank by the outcome. otherwise, take order that was passed.
+  if(rank_by_outcome){
+    data <- data |>
+      arrange(outcome) |>
+      mutate(rank = row_number())
+  }
+  
+  # ensure all columns other than rank and outcome are factors
+  data <- data |>
+    mutate(across(.cols = -c(rank, outcome, interval_lower, interval_upper),
+                  .fns = as.factor))
+  
+  p_estimates <- data |>
+    mutate(outcome_name = outcome_name) |>
+    ggplot(aes(rank, outcome)) +
+    geom_linerange(aes(ymin = interval_lower, ymax = interval_upper)) +
+    geom_point(shape = "circle", size = 2) +
+    facet_grid(outcome_name ~ ., space = "free_y", scales = "free_y", switch = "y") +
+    scale_y_continuous(breaks = scales::pretty_breaks()) + 
+    scale_x_continuous(NULL, expand = c(.02, .02)) +
+    ylab("Simulation results") +
+    #theme_classic() +
+    theme_minimal() +
+    theme(legend.position = "none",
+          axis.line.x = element_blank(),
+          strip.placement = "outside",
+          strip.background = element_rect(fill = NA, colour = NA),
+          panel.spacing.x = unit(0.15, "cm"),
+          strip.text.y = element_markdown(angle = 180, face = "bold", size = 7),
+          axis.text.y = element_text(angle = 0, 
+                                     hjust = 0.5, 
+                                     size = 6),
+          axis.title.y = element_text(size = 9, face = "bold"),
+          panel.spacing = unit(0.25, "lines"),
+          axis.title.x = element_blank(),
+          axis.text.x = element_blank(),
+          axis.ticks.x = element_blank())
+  
+  if(!is.null(outcome_cutoff)){
+    p_estimates <- p_estimates + geom_hline(yintercept = outcome_cutoff, linetype = "dotted")
+  }
+  
+  p_specs <- data |> 
+    tidyr::pivot_longer(cols = c(-"rank", -"outcome", -"interval_lower", -"interval_upper")) |> 
+    arrange(rank) |>
+    ggplot(aes(x = rank, y = factor(value), color = name)) + 
+    geom_point(size = 2, shape = "square") +
+    facet_grid(name ~ ., space = "free_y", scales = "free_y", switch = "y") +
+    guides(color = "none") +
+    scale_x_continuous(NULL, expand = c(.02, .02)) +
+    ylab("Simulation conditions") +
+    #theme_classic() +
+    theme_minimal() +
+    theme(strip.placement = "outside",
+          strip.background = element_rect(fill = NA, colour = NA),
+          panel.spacing.x = unit(0.15, "cm"),
+          strip.text.y = element_markdown(angle = 180, face = "bold", size = 7),
+          axis.text.y = element_text(angle = 0, hjust = 1, size = 6),
+          axis.title.y = element_text(size = 9, face = "bold"),
+          panel.spacing = unit(0.25, "lines"),
+          axis.title.x = element_blank(),
+          axis.text.x = element_blank(),
+          axis.ticks.x = element_blank()) +
+    scale_color_brewer(palette = "Dark2")
+
+  p_multiverse <- cowplot::plot_grid(p_estimates, 
+                                     p_specs, 
+                                     axis = "bltr", 
+                                     align = "v", 
+                                     ncol = 1, 
+                                     rel_heights = c(relative_height_of_upper_plot, 1))
+  
+  return(p_multiverse)
+}
+
+```
+
+### static matrix
+
+```{r}
+
+#' Generate Equicorrelation Matrix
+#'
+#' Creates an N x N matrix with 1s on the diagonal and a static value 'r' on the off-diagonals.
+#'
+#' @param n Integer. The dimension of the matrix (number of rows/columns).
+#' @param r Numeric. The correlation value for off-diagonal elements.
+#' @param check_validity Logical. If TRUE, checks if the resulting matrix is positive semi-definite.
+#' @return An N x N matrix.
+#' @examples
+#' # Generate a valid 4x4 matrix with correlation 0.5
+#' m <- generate_static_matrix(4, 0.5)
+#' 
+#' # Generate a matrix that is technically invalid (negative eigenvalues)
+#' m_bad <- generate_static_matrix(3, -0.9)
+#' @export
+generate_static_matrix <- function(k, r, check_validity = TRUE) {
+  
+  if (k < 2) stop("Dimension k must be at least 2.")
+  if (abs(r) > 1) warning("Correlation r should typically be between -1 and 1.")
+
+  # 1. Create the matrix
+  # Create an n*n matrix filled with 'r'
+  mat <- matrix(r, nrow = k, ncol = k)
+  
+  # Set the diagonal to 1
+  diag(mat) <- 1
+  
+  # 2. Check mathematical validity (Positive Semi-Definite)
+  # For an equicorrelation matrix, r must satisfy:
+  # -1 / (n - 1) <= r <= 1
+  if (check_validity) {
+    lower_bound <- -1 / (k - 1)
+    if (r < lower_bound) {
+      warning(sprintf(
+        "Matrix is not positive semi-definite (invalid correlation matrix). 
+         For dimension %d, r must be >= %.4f. You provided %.4f.",
+        k, lower_bound, r
+      ))
+    }
+  }
+  
+  return(mat)
+}
+
+generate_and_test <- function(k, r, var1, var2){
+  generate_static_matrix(k = k, r = r) %>%
+    boundary_algebraic(corMat = ., var1 = var1, var2 = var2) |> 
+    mutate(bounds_width = imputed_r_upper_bound - imputed_r_lower_bound)
+}
 
 
 
+# res <- 
+#   expand_grid(
+#       k = 20,
+#       r = .5,
+#       var1 = 1,
+#       var2 = seq.int(2, 20)
+#     ) |>
+#   mutate(res = purrr::pmap(.l = list(k = k, r = r, var1 = var1, var2 = var2),
+#                            .f = generate_and_test)) |>
+#   unnest(res) |>
+#   mutate_if(is.numeric, roundwork::round_up, digits = 2)
+
+res <-
+  expand_grid(
+    k = seq.int(2, 20),
+    r = c(seq(0, .9, by = .1), .99) |> round_up(2),
+    var1 = 1,
+    var2 = 2
+  ) |>
+  mutate(res = purrr::pmap(.l = list(k = k, r = r, var1 = var1, var2 = var2),
+                           .f = generate_and_test)) |>
+  unnest(res) |>
+  mutate_if(is.numeric, roundwork::round_up, digits = 2)
+
+```
+
+multiverse plot
+
+```{r fig.height=9, fig.width=9}
+
+data_summary_ordered <- res |>
+  # the outcome variable must be called `outcome`
+  # eg the estimand of your simulation, whether the false positive rate, estimated effect size, etc.
+  mutate(outcome = bounds_width) |>
+  
+  # # order the rows within the columns in the way you want them to appear left to right
+  # arrange(k, r, var1, var2) |>
+  # mutate(rank = row_number()) |>
+
+  # note that you might instead want to rank by the outcome variable rather than the conditions
+  arrange(outcome) |>
+  mutate(rank = row_number()) |>
+  
+  # select only the columns that you had multiple values for in the expand.grid() call in the simulation as well as `outcome` and `rank`
+  # rename them if necessary to plot nicely
+  dplyr::select(`r` = r, 
+                `k size matrix` = k, 
+                outcome,
+                rank)
+
+p_multiverse <- data_summary_ordered |>
+  multiverse_plot(outcome_name = "r bounds")
+
+p_multiverse
+
+```
+
+
+### uniform distributed matrix with varying bounds location
+
+```{r}
+
+#' Generate Random Uniform Correlation Matrix
+#'
+#' Creates an N x N matrix where off-diagonal elements are sampled from a 
+#' uniform distribution. Returns NULL if the resulting matrix is not 
+#' positive semi-definite.
+#'
+#' @param n Integer. The dimension of the matrix.
+#' @param min_r Numeric. The minimum value for the uniform distribution.
+#' @param max_r Numeric. The maximum value for the uniform distribution.
+#' @return An N x N matrix if valid, or NULL if invalid.
+#' @export
+generate_uniform_matrix <- function(k, min_r = -1, max_r = 1) {
+  
+  if (k < 2) stop("Dimension n must be at least 2.")
+  if (min_r > max_r) stop("min_r cannot be greater than max_r.")
+
+  # 1. Initialize matrix with 1s on diagonal
+  mat <- matrix(1, nrow = k, ncol = k)
+  
+  # 2. Generate random values for the upper triangle
+  # Number of unique off-diagonal elements
+  n_upper <- k * (k - 1) / 2 
+  random_vals <- runif(n_upper, min = min_r, max = max_r)
+  
+  # 3. Fill upper triangle and mirror to lower to ensure symmetry
+  mat[upper.tri(mat)] <- random_vals
+  # Transpose the upper triangle to fill the lower triangle
+  mat[lower.tri(mat)] <- t(mat)[lower.tri(mat)]
+  
+  # 4. Check for Positive Semi-Definiteness (PSD)
+  # Calculate eigenvalues. If the smallest eigenvalue is negative, 
+  # the matrix is not a valid correlation matrix.
+  eigenvalues <- eigen(mat, symmetric = TRUE, only.values = TRUE)$values
+  
+  # Use a small tolerance (1e-8) for floating point comparisons
+  if (min(eigenvalues) < -1e-8) {
+    return(NULL)
+  }
+  
+  return(mat)
+}
+
+
+generate_and_test <- function(k, min_r, max_r, var1, var2) {
+  
+  # 1. Attempt to generate matrix
+  mat <- generate_uniform_matrix(k = k, min_r = min_r, max_r = max_r)
+  
+  # 2. STOP if invalid: If mat is NULL (not Positive Definite), return NULL immediately.
+  # This prevents the NULL from hitting 'mutate'
+  if (is.null(mat)) return(NULL)
+  
+  # 3. Calculate bounds on valid matrix
+  # You can use 'possibly' here if you fear other errors, but strictly checking 
+  # is.null(mat) solves the immediate crash.
+  res <- boundary_algebraic(corMat = mat, var1 = var1, var2 = var2)
+  
+  # 4. Add width column
+  res |> 
+    mutate(bounds_width = imputed_r_upper_bound - imputed_r_lower_bound)
+}
+
+library(furrr)
+
+plan(multisession, workers = future::availableCores())
+  
+set.seed(42)
+
+res2 <-
+  expand_grid(
+    k = seq.int(3, 12),
+    max_r = seq(0, .9, by = .1) |> round_up(2),
+    var1 = 1,
+    var2 = 2,
+    iteration = 1:1000
+  ) |>
+  mutate(min_r = max_r -.3) |>
+  mutate(res = furrr::future_pmap(.l = list(k = k, min_r = min_r, max_r = max_r, var1 = var1, var2 = var2),
+                                  .f = generate_and_test,
+                                  .progress = TRUE,
+                                  .options = furrr_options(seed = TRUE))) |>
+  unnest(res) 
+
+res_summary2 <- res2 |>
+  group_by(k,
+           min_r,
+           max_r,
+           var1,
+           var2) |>
+  summarize(n_pd = n(),
+            bounds_width_mean = mean(bounds_width),
+            bounds_width_min = min(bounds_width),
+            bounds_width_max = max(bounds_width)) |>
+  ungroup() |>
+  mutate_if(is.numeric, roundwork::round_up, digits = 2)
+
+```
+
+multiverse plot
+
+```{r fig.height=9, fig.width=9}
+
+data_summary_ordered2 <- res_summary2 |>
+  # the outcome variable must be called `outcome`
+  # eg the estimand of your simulation, whether the false positive rate, estimated effect size, etc.
+  mutate(outcome = bounds_width_mean) |>
+  mutate(r_pop_mean = (max_r + min_r)/2) |>
+  
+  # order the rows within the columns in the way you want them to appear left to right
+  arrange(k, r_pop_mean) |>
+  mutate(rank = row_number()) |>
+
+  # # note that you might instead want to rank by the outcome variable rather than the conditions
+  # arrange(outcome) |>
+  # mutate(rank = row_number()) |>
+  
+  # select only the columns that you had multiple values for in the expand.grid() call in the simulation as well as `outcome` and `rank`
+  # rename them if necessary to plot nicely
+  
+  dplyr::select(r_pop_mean,
+                `k size matrix` = k, 
+                outcome,
+                bounds_width_min,
+                bounds_width_max,
+                rank)
+
+p_multiverse2 <- data_summary_ordered2 |>
+  multiverse_plot(outcome_name = "r bounds",
+                  interval_lower = "bounds_width_min",
+                  interval_upper = "bounds_width_max")
+
+p_multiverse2
+
+res_summary2 |>
+  mutate(r_pop_mean = (max_r + min_r)/2) |>
+  ggplot(aes(r_pop_mean, n_pd)) +
+  geom_point()
+
+```
+
+
+### uniform distributed matrix with varying bounds width
+
+```{r}
+
+#' Generate Random Uniform Correlation Matrix
+#'
+#' Creates an N x N matrix where off-diagonal elements are sampled from a 
+#' uniform distribution. Returns NULL if the resulting matrix is not 
+#' positive semi-definite.
+#'
+#' @param n Integer. The dimension of the matrix.
+#' @param min_r Numeric. The minimum value for the uniform distribution.
+#' @param max_r Numeric. The maximum value for the uniform distribution.
+#' @return An N x N matrix if valid, or NULL if invalid.
+#' @export
+generate_uniform_matrix <- function(k, min_r = -1, max_r = 1) {
+  
+  if (k < 2) stop("Dimension n must be at least 2.")
+  if (min_r > max_r) stop("min_r cannot be greater than max_r.")
+
+  # 1. Initialize matrix with 1s on diagonal
+  mat <- matrix(1, nrow = k, ncol = k)
+  
+  # 2. Generate random values for the upper triangle
+  # Number of unique off-diagonal elements
+  n_upper <- k * (k - 1) / 2 
+  random_vals <- runif(n_upper, min = min_r, max = max_r)
+  
+  # 3. Fill upper triangle and mirror to lower to ensure symmetry
+  mat[upper.tri(mat)] <- random_vals
+  # Transpose the upper triangle to fill the lower triangle
+  mat[lower.tri(mat)] <- t(mat)[lower.tri(mat)]
+  
+  # 4. Check for Positive Semi-Definiteness (PSD)
+  # Calculate eigenvalues. If the smallest eigenvalue is negative, 
+  # the matrix is not a valid correlation matrix.
+  eigenvalues <- eigen(mat, symmetric = TRUE, only.values = TRUE)$values
+  
+  # Use a small tolerance (1e-8) for floating point comparisons
+  if (min(eigenvalues) < -1e-8) {
+    return(NULL)
+  }
+  
+  return(mat)
+}
+
+
+generate_and_test <- function(k, min_r, max_r, var1, var2) {
+  
+  # 1. Attempt to generate matrix
+  mat <- generate_uniform_matrix(k = k, min_r = min_r, max_r = max_r)
+  
+  # 2. STOP if invalid: If mat is NULL (not Positive Definite), return NULL immediately.
+  # This prevents the NULL from hitting 'mutate'
+  if (is.null(mat)) return(NULL)
+  
+  # 3. Calculate bounds on valid matrix
+  # You can use 'possibly' here if you fear other errors, but strictly checking 
+  # is.null(mat) solves the immediate crash.
+  res <- boundary_algebraic(corMat = mat, var1 = var1, var2 = var2)
+  
+  # 4. Add width column
+  res |> 
+    mutate(bounds_width = imputed_r_upper_bound - imputed_r_lower_bound)
+}
+
+library(furrr)
+
+plan(multisession, workers = future::availableCores())
+  
+set.seed(42)
+
+res <-
+  expand_grid(
+    k = seq.int(3, 12),
+    max_r = seq(0, .9, by = .1) |> round_up(2),
+    var1 = 1,
+    var2 = 2,
+    iteration = 1:1000
+  ) |>
+  mutate(min_r = max_r * -1) |>
+  mutate(res = furrr::future_pmap(.l = list(k = k, min_r = min_r, max_r = max_r, var1 = var1, var2 = var2),
+                                  .f = generate_and_test,
+                                  .progress = TRUE,
+                                  .options = furrr_options(seed = TRUE))) |>
+  unnest(res) 
+
+res_summary <- res |>
+  group_by(k,
+           min_r,
+           max_r,
+           var1,
+           var2) |>
+  summarize(n_pd = n(),
+            bounds_width_mean = mean(bounds_width),
+            bounds_width_min = min(bounds_width),
+            bounds_width_max = max(bounds_width)) |>
+  ungroup() |>
+  mutate_if(is.numeric, roundwork::round_up, digits = 2)
+
+```
+
+multiverse plot
+
+```{r fig.height=9, fig.width=9}
+
+data_summary_ordered <- res_summary |>
+  # the outcome variable must be called `outcome`
+  # eg the estimand of your simulation, whether the false positive rate, estimated effect size, etc.
+  mutate(outcome = bounds_width_mean) |>
+  mutate(r_pop_range = max_r - min_r) |>
+  
+  # order the rows within the columns in the way you want them to appear left to right
+  arrange(k, r_pop_range) |>
+  mutate(rank = row_number()) |>
+
+  # # note that you might instead want to rank by the outcome variable rather than the conditions
+  # arrange(outcome) |>
+  # mutate(rank = row_number()) |>
+  
+  # select only the columns that you had multiple values for in the expand.grid() call in the simulation as well as `outcome` and `rank`
+  # rename them if necessary to plot nicely
+  
+  dplyr::select(r_pop_range,
+                `k size matrix` = k, 
+                outcome,
+                bounds_width_min,
+                bounds_width_max,
+                rank)
+
+p_multiverse <- data_summary_ordered |>
+  multiverse_plot(outcome_name = "r bounds",
+                  interval_lower = "bounds_width_min",
+                  interval_upper = "bounds_width_max")
+
+p_multiverse
+
+```
+
+
+# The hard limit of PDness for r and k
+
+```{r fig.height=6, fig.width=6}
+
+library(ggplot2)
+library(dplyr)
+
+# 1. Generate Data for the theoretical limit
+# Range of dimensions k from 2 to 25
+plot_data <- data.frame(k = seq(2, 25, by = 0.1)) |>
+  mutate(min_r = -1 / (k - 1))
+
+# 2. Create the Plot
+ggplot(plot_data, aes(x = k, y = min_r)) +
+  # Add the geometric limit line
+  geom_line(size = 1.2, color = "black") +
+  
+  # Shade the "Impossible" region (Below the line)
+  geom_ribbon(aes(ymin = -1, ymax = min_r), fill = "#d73027", alpha = 0.3) +
+  
+  # Shade the "Possible" region (Above the line, up to 0 for this view)
+  geom_ribbon(aes(ymin = min_r, ymax = 0), fill = "#4575b4", alpha = 0.3) +
+  
+  # Add Labels to the regions
+  annotate("text", x = 15, y = -0.6, label = "Impossible Region\n(Not Positive Definite)", 
+           color = "#d73027", fontface = "bold", size = 5) +
+  annotate("text", x = 6, y = -0.02, label = "Valid Region", 
+           color = "#4575b4", fontface = "bold", size = 5, vjust = 1) +
+
+  # Add specific points for context (The "Crowded Room" examples)
+  geom_point(data = data.frame(k = c(2, 3, 5, 11), y = c(-1, -0.5, -0.25, -0.1)), 
+             aes(x = k, y = y), size = 3) +
+  geom_text(data = data.frame(k = c(2, 3, 5, 11), y = c(-1, -0.5, -0.25, -0.1)),
+            aes(x = k, y = y, label = paste0("k=", k, "\nmin r=", y)), 
+            nudge_y = 0.08, nudge_x = 0.5, size = 3.5, lineheight = 0.9) +
+
+  # Formatting
+  scale_y_continuous(limits = c(-1, 0), breaks = seq(-1, 0, 0.1), name = "Correlation (r)") +
+  scale_x_continuous(breaks = seq(2, 24, 2), name = "Number of Variables (k)") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "The 'Crowded Room' Problem",
+    subtitle = "Minimum possible uniform correlation as dimension (k) increases",
+    caption = "Formula: min_r = -1 / (k - 1)"
+  ) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+
+```
+
+# Generating PD correlation matrices
+
+
+Gram Matrix Method: Generate a random rectangular matrix $X$ and compute $C = \text{cov}(X)$. This is always PD by definition.
+
+```{r}
+
+# Simple way to get a random valid correlation matrix
+generate_valid_random <- function(n) {
+  # Generate random data
+  X <- matrix(rnorm(n * n * 2), ncol = n) 
+  # Return its correlation matrix
+  return(cor(X))
+}
+
+generate_valid_random(10)
+
+```
+
+The "Onion" Method (Joe, 2006) - (formally described by Lewandowski, Kurowicka, and Joe, 2009, extending Joe, 2006) is the standard solution to the problem you just encountered.: Generates random correlations uniformly distributed over the valid elliptope.
+
+The Algorithm
+The method relies on the partial correlation property.
+- Start with a correlation matrix $R_{k-1}$.
+- To extend it to $R_k$, we need to generate a new column of correlations $r$.
+- The condition for $R_k$ to be positive definite is that the quadratic form $r^T R_{k-1}^{-1} r < 1$.
+- This inequality describes a hyper-ellipsoid. The method samples a direction vector (on a sphere) and a radius (beta distribution) to find a valid $r$.
+
+R Implementation
+
+Here is a standalone function that implements the Onion Method. This will never return NULL. It will always produce a valid correlation matrix.
+You can tune alpha (the shape parameter of the Beta distribution):
+- alphad = 1: Uniform distribution over the space of correlation matrices (rarely extreme correlations).
+- alphad > 1: Concentrated around the identity matrix (correlations closer to 0).
+- alphad < 1: More density near the edges (high correlations).
+
+```{r}
+
+#' Generate Random Correlation Matrix (Onion Method)
+#' 
+#' Generates a random correlation matrix that is guaranteed to be 
+#' Positive Semi-Definite. Based on the method by Lewandowski, Kurowicka, and Joe (2009).
+#'
+#' @param d The dimension of the matrix.
+#' @param eta The parameter controlling the distribution. 
+#'            1 = Uniform distribution of matrices. 
+#'            Higher values = Correlations concentrated near 0.
+#' @return A valid d x d correlation matrix.
+generate_onion_matrix <- function(d, eta = 1) {
+  
+  # 1. Initialize the first element (1x1 matrix)
+  beta <- eta + (d - 2) / 2
+  u <- rbeta(1, beta, beta)
+  r12 <- 2 * u - 1
+  R <- matrix(c(1, r12, r12, 1), nrow = 2) # Start with 2x2
+  
+  # 2. Iterate to add layers (from dimension 3 to d)
+  if (d > 2) {
+    for (k in 3:d) {
+      
+      # Sampling y from Beta distribution (radius in the ellipsoid)
+      beta <- eta + (d - 1 - k) / 2
+      y <- rbeta(1, k / 2 - 1, beta)
+      r <- sqrt(y) # Radius
+      
+      # Sample direction uniformly from the unit sphere
+      # (Normalizing a vector of standard normals)
+      theta <- rnorm(k - 1)
+      theta <- theta / sqrt(sum(theta^2))
+      
+      # The new column is formed by mapping the direction/radius 
+      # back into the correlation space using the Cholesky root of the previous R.
+      # L is the lower triangular Cholesky factor of the current R
+      L <- t(chol(R))
+      
+      # The new correlations w
+      w <- L %*% (r * theta)
+      
+      # Update the matrix
+      # New R is:
+      # [ Old R   w ]
+      # [ w^T     1 ]
+      R_new <- matrix(0, nrow = k, ncol = k)
+      R_new[1:(k-1), 1:(k-1)] <- R
+      R_new[k, 1:(k-1)] <- w
+      R_new[1:(k-1), k] <- w
+      R_new[k, k] <- 1
+      
+      R <- R_new
+    }
+  }
+  
+  return(R)
+}
+
+```
