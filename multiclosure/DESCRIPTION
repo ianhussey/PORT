@@ -1,0 +1,41 @@
+Package: multiclosure
+Type: Package
+Title: Multivariate CLOSURE for Forensic Reconstruction of Bounded-Integer Datasets
+Version: 0.1.0
+Authors@R: person("Ian", "Hussey", email = "ian.hussey@example.org", role = c("aut", "cre"))
+Description: Extends CLOSURE (Jung, unsum package) to the multivariate case.
+    Given reported summary statistics for Likert-style data (sample size,
+    per-item means and SDs, correlation matrix, optionally Cronbach's alpha),
+    enumerate or sample integer datasets compatible with those summaries on
+    the stated bounded scale. Intended for forensic use: detect papers whose
+    reported summaries are infeasible, internally inconsistent, or whose
+    claimed inferences cannot be reproduced on any compatible reconstruction.
+    Pipeline runs cheap impossibility certificates first (GRIM/GRIMMER,
+    Bhatia-Davis, Cronbach alpha consistency, Frechet-Hoeffding bounds),
+    then per-item CLOSURE enumeration, a beta-binomial population-skew
+    plausibility filter, NORTA-based joint reconstruction via GenOrd, and
+    a summary-verification step. A mixed-integer fallback for
+    NORTA-infeasible cases is planned for v2.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends: R (>= 4.0.0)
+Imports:
+    unsum,
+    scrutiny,
+    GenOrd,
+    extraDistr,
+    tibble,
+    dplyr,
+    purrr,
+    stats,
+    utils
+Suggests:
+    copula,
+    ggplot2,
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown
+Config/testthat/edition: 3
+VignetteBuilder: knitr
+RoxygenNote: 7.3.1
